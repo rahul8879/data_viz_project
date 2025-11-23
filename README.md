@@ -1,6 +1,6 @@
 # Agentic Sales Insight Assistant
 
-This repository now includes a LangGraph-powered agent that can reason over the CSV data stored in `data/sales_data.csv`. The assistant answers natural-language questions about the dataset and automatically generates supporting charts that are saved under `artifacts/`.
+This repository now includes a LangGraph-powered agent that can reason over a SQLite-backed synthetic retail dataset stored in `data/retail_sales.sqlite` (table: `retail_sales`). The assistant answers natural-language questions about the dataset and automatically generates supporting charts that are saved under `artifacts/`.
 
 ## 1. Setup
 
@@ -20,14 +20,15 @@ export OPENAI_API_KEY="sk-..."
 
 ```bash
 python -m agent.sales_agent \
-    --csv data/sales_data.csv \
+    --db data/retail_sales.sqlite \
+    --table retail_sales \
     --question "What are the total sales for the last 10 days and how do they trend daily?"
 ```
 
 The agent responds with:
 
 - A concise textual insight grounded in the numbers it computed through the `python_df` tool.
-- The path to a chart stored under `artifacts/`. Each invocation wipes nothing, so you can inspect or embed the produced visual later.
+- A trend chart stored under `artifacts/` when your question includes chart-related keywords (plot/chart/visualize/graph/trend).
 
 ## 3. Serve over FastAPI
 
@@ -37,7 +38,7 @@ Launch the HTTP API (with Swagger UI at `/docs`) via:
 uvicorn app.main:app --reload
 ```
 
-Send a request using Swagger UI or cURL (only the `prompt` field is required; the app always reads `data/sales_data.csv`):
+Send a request using Swagger UI or cURL (only the `prompt` field is required; the app always reads `data/retail_sales.sqlite` / `retail_sales`):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/query \
@@ -45,9 +46,20 @@ curl -X POST http://127.0.0.1:8000/query \
   -d '{"prompt": "Show the average sales by product"}'
 ```
 
-The API response mirrors the CLI output with a concise textual answer. The agent still leverages pandas/matplotlib under the hood when needed but no longer requires charts for every question.
+The API response mirrors the CLI output with a concise textual answer, plus `chart_path` when a chart is generated (served from `/artifacts/...`). The agent still leverages pandas/matplotlib under the hood when needed but no longer requires charts for every question.
 
-## 3. Bring your own CSV
+## 4. Web UI (React chat)
 
-Point the `--csv` flag to any other dataset that includes the columns needed to answer your question (e.g., `date`, `sales_amount`, `region`). The agent automatically tries to parse date-like fields and instructs you when data is missing for a request.
+1) Start the backend: `uvicorn app.main:app --reload`
+2) Install frontend deps and run the dev server:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   The Vite dev server will print a local URL (default: http://127.0.0.1:5173). The app calls the FastAPI backend at `http://127.0.0.1:8000` by default; override with `VITE_API_BASE` in a `.env` file if needed.
+
+## 3. Bring your own SQLite table
+
+Point the `--db` and `--table` flags to any SQLite database that includes the columns needed to answer your question (e.g., `order_date`, `revenue`, `region`). The agent automatically tries to parse date-like fields and instructs you when data is missing for a request.
 # data_viz_project
