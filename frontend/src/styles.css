@@ -146,8 +146,8 @@ label {
 
 .input-row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
   align-items: stretch;
 }
 
@@ -186,10 +186,51 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--outline);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  font-weight: 600;
+}
+
+.mic-btn .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.mic-btn.active {
+  background: rgba(47, 128, 237, 0.08);
+  border-color: #9cc3ff;
+  color: #0b3b8f;
+  box-shadow: 0 0 0 1px rgba(47, 128, 237, 0.15), 0 10px 26px rgba(47, 128, 237, 0.25);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
 .hint {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.hint.error {
+  color: #c0392b;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 code {
@@ -207,6 +248,10 @@ code {
   }
   button {
     height: 46px;
+    width: 100%;
+  }
+  .mic-btn {
+    justify-content: center;
   }
   #messages {
     max-height: 60vh;
