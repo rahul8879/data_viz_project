@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
+from langchain_community.utilities import SQLDatabase
 from langchain_experimental.tools.python.tool import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
@@ -69,15 +71,26 @@ class SalesInsightAgent:
     artifacts_dir: Path = BASE_DIR / "artifacts"
     model_name: str = "gpt-4o-mini"
     temperature: float = 0.0
+    # endpoint = '127.0.0.1:11434'
 
     def __post_init__(self) -> None:
+        _validate_table_name(self.table_name)
         ensure_sqlite_dataset(self.db_path, self.table_name)
+        self.sql_database: SQLDatabase = SQLDatabase.from_uri(
+            f"sqlite:///{self.db_path}",
+            sample_rows_in_table_info=3,
+        )
         self.dataframe = _maybe_parse_dates(self._load_dataframe())
+        schema_snapshot = self.sql_database.get_table_info()
         self.system_message = SystemMessage(
-            content=self._build_system_prompt(_summarize_dataframe(self.dataframe)),
+            content=self._build_system_prompt(
+                dataset_summary=_summarize_dataframe(self.dataframe),
+                schema=schema_snapshot,
+            ),
         )
         self.llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
-
+        # self.llm = ChatOpenAI(model="Gemma3-1B", temperature=self.temperature,endpoints= endpoint)
+   
         python_tool = PythonAstREPLTool(
             name="python_df",
             description=(
@@ -90,26 +103,32 @@ class SalesInsightAgent:
             },
         )
 
-        self._llm_with_tools = self.llm.bind_tools([python_tool])
+        sql_tool = QuerySQLDataBaseTool(db=self.sql_database)
+
+        self._llm_with_tools = self.llm.bind_tools([python_tool, sql_tool])
 
         graph = StateGraph(AgentState)
         graph.add_node("agent", self._run_agent)
-        graph.add_node("tools", ToolNode([python_tool]))
+        graph.add_node("tools", ToolNode([python_tool, sql_tool]))
 
         graph.set_entry_point("agent")
         graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: END})
         graph.add_edge("tools", "agent")
         self.graph = graph.compile()
 
-    def _build_system_prompt(self, dataset_summary: str) -> str:
+    def _build_system_prompt(self, dataset_summary: str, schema: str) -> str:
         return (
             "You are a senior data analyst embedded inside a LangGraph agent. "
-            "A pandas DataFrame named `df` is available through the python tool. "
+            "You have two tools: "
+            "1) `query_sql_db` to run read-only SQL against the SQLite database (auto-detect schema, include LIMIT 50 on exploratory queries, never modify data); "
+            "2) `python_df` to operate on the pandas DataFrame `df` already loaded from the primary fact table for extra calculations or chart prep. "
             "Follow these rules:\n"
-            "1. Use the python tool whenever the question requires looking at the dataset contents.\n"
-            "2. Provide crisp, numeric answers grounded in the observed results. Textual guidance is fine when the user only greets you.\n"
-            "3. If the requested insight is impossible with the available columns, explain why "
-            "and suggest what data is needed.\n\n"
+            "- Start with `query_sql_db` to fetch the minimum data needed. Show the SQL you executed in a fenced code block before summarizing results.\n"
+            "- Use `python_df` only when SQL cannot easily answer the request (e.g., complex visuals or custom calculations).\n"
+            "- Provide crisp, numeric answers grounded in query results. If the request is impossible with available columns, explain why and suggest the missing data.\n\n"
+            "Multiple tables may exist—join them when helpful. Primary fact table: "
+            f"{self.table_name}\n"
+            f"SQL schema snapshot:\n{schema}\n\n"
             f"Dataset snapshot:\n{dataset_summary}\n"
         )
 
@@ -239,11 +258,21 @@ def ensure_sqlite_dataset(db_path: Path, table_name: str = "retail_sales", rows:
     with sqlite3.connect(db_path) as conn:
         # Create the table only when it is absent to avoid clobbering user-provided data.
         tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
-        if table_name in tables["name"].values:
-            return
+        existing_tables = set(tables["name"].values)
+        source_df: pd.DataFrame | None = None
 
-        df = _generate_retail_sales_data(rows)
-        df.to_sql(table_name, conn, index=False, if_exists="replace")
+        if table_name not in existing_tables:
+            source_df = _generate_retail_sales_data(rows)
+            source_df.to_sql(table_name, conn, index=False, if_exists="replace")
+            existing_tables.add(table_name)
+        else:
+            # Pull a lightweight sample to seed dimension tables if needed.
+            try:
+                source_df = pd.read_sql(f"SELECT * FROM {table_name} LIMIT 500", conn)
+            except Exception:
+                source_df = None
+
+        _ensure_dimension_tables(conn, table_name, seed_df=source_df)
 
 
 def _validate_table_name(table_name: str) -> None:
@@ -308,6 +337,60 @@ def _generate_retail_sales_data(rows: int) -> pd.DataFrame:
         }
     )
     return df
+
+
+def _ensure_dimension_tables(conn: sqlite3.Connection, fact_table: str, seed_df: pd.DataFrame | None) -> None:
+    """Create small dimension tables to exercise multi-table SQL if missing."""
+    tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
+    existing = set(tables["name"].values)
+    rng = np.random.default_rng(7)
+
+    if "store_info" not in existing:
+        if seed_df is None or seed_df.empty:
+            store_ids = np.arange(100, 110)
+            regions = rng.choice(["North", "South", "East", "West", "Central"], size=len(store_ids))
+            channels = rng.choice(["In-Store", "Online", "Mobile App", "Wholesale"], size=len(store_ids))
+        else:
+            dedup = seed_df[["store_id", "region", "channel"]].drop_duplicates()
+            store_ids = dedup["store_id"].values
+            regions = dedup["region"].values
+            channels = dedup["channel"].values
+
+        managers = [f"Manager {i+1}" for i in range(len(store_ids))]
+        opened = [
+            (datetime.now().date() - timedelta(days=int(offset))).isoformat()
+            for offset in rng.integers(180, 900, size=len(store_ids))
+        ]
+        store_info = pd.DataFrame(
+            {
+                "store_id": store_ids,
+                "region": regions,
+                "channel": channels,
+                "manager": managers,
+                "opened_date": opened,
+            }
+        )
+        store_info.to_sql("store_info", conn, index=False, if_exists="replace")
+
+    if "product_catalog" not in existing:
+        if seed_df is None or seed_df.empty or not {"product_name", "product_category", "unit_price"}.issubset(
+            seed_df.columns
+        ):
+            product_catalog = pd.DataFrame(
+                {
+                    "product_name": ["Starter Widget", "Pro Widget", "Elite Widget", "Accessory Pack"],
+                    "product_category": ["Electronics", "Electronics", "Electronics", "Accessories"],
+                    "list_price": [129.0, 249.0, 399.0, 59.0],
+                }
+            )
+        else:
+            product_catalog = (
+                seed_df.groupby(["product_name", "product_category"], as_index=False)["unit_price"]
+                .mean()
+                .rename(columns={"unit_price": "list_price"})
+                .sort_values("product_name")
+            )
+        product_catalog.to_sql("product_catalog", conn, index=False, if_exists="replace")
 
 
 def _make_artifacts_dir(path: Path) -> Path:
