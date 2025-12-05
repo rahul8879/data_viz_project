@@ -9,3 +9,5 @@ langgraph
 python-dotenv
 fastapi
 uvicorn
+azure-identity
+pyodbc

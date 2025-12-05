@@ -59,7 +59,21 @@ The API response mirrors the CLI output with a concise textual answer, plus `cha
    ```
    The Vite dev server will print a local URL (default: http://127.0.0.1:5173). The app calls the FastAPI backend at `http://127.0.0.1:8000` by default; override with `VITE_API_BASE` in a `.env` file if needed.
 
-## 3. Bring your own SQLite table
+## 5. Bring your own SQLite table
 
 Point the `--db` and `--table` flags to any SQLite database that includes the columns needed to answer your question (e.g., `order_date`, `revenue`, `region`). The agent automatically tries to parse date-like fields and instructs you when data is missing for a request.
+
+## 6. Use Azure SQL with Azure CLI auth
+
+Set the following environment variables (in `.env` or `agent/.env`) to switch the backend to Azure SQL using access tokens fetched via `az login`:
+
+```bash
+AZURE_SQL_SERVER="prod-platform-wellfit-sqlserver-reporting.database.windows.net"
+AZURE_SQL_DATABASE="analytics-dev"
+AZURE_SQL_TABLE="DimDate"                  # optional override; defaults to retail_sales
+AZURE_SQL_DRIVER="ODBC Driver 18 for SQL Server"  # optional
+AZURE_SQL_USE_CLI_AUTH=true                # uses AzureCliCredential to pass an access token to pyodbc
+```
+
+When these variables are present, the API and CLI automatically build a `mssql+pyodbc` URI and inject the Azure AD access token via `attrs_before`. Without them, the agent falls back to the bundled SQLite database.
 # data_viz_project

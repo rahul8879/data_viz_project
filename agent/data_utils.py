@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import struct
+import urllib.parse
 from pathlib import Path
+from typing import Dict
 
+from azure.identity import AzureCliCredential
+
+# Constant used by pyodbc to pass an access token through attrs_before.
+SQL_COPT_SS_ACCESS_TOKEN = 1256
+AZURE_SQL_SCOPE = "https://database.windows.net/.default"
 
 
 def validate_table_name(table_name: str) -> None:
@@ -20,3 +28,26 @@ def build_sqlite_uri(db_path: Path) -> str:
 def is_sqlite_uri(db_uri: str) -> bool:
     """Detect whether the provided URI targets SQLite."""
     return db_uri.startswith("sqlite")
+
+
+def build_azure_sqlalchemy_uri(server: str, database: str, driver: str = "ODBC Driver 18 for SQL Server") -> str:
+    """Construct an encoded SQLAlchemy URI for Azure SQL over pyodbc."""
+    odbc_str = (
+        f"Driver={{{driver}}};"
+        f"Server=tcp:{server},1433;"
+        f"Database={database};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=no;"
+        "Connection Timeout=30;"
+    )
+    encoded = urllib.parse.quote_plus(odbc_str)
+    return f"mssql+pyodbc:///?odbc_connect={encoded}"
+
+
+def build_azure_cli_access_token_args(scope: str = AZURE_SQL_SCOPE) -> Dict[str, Dict[int, bytes]]:
+    """Return connect_args that inject a short-lived Azure AD access token via Azure CLI auth."""
+    credential = AzureCliCredential()
+    token = credential.get_token(scope)
+    token_bytes = token.token.encode("utf-16-le")
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+    return {"attrs_before": {SQL_COPT_SS_ACCESS_TOKEN: token_struct}}
