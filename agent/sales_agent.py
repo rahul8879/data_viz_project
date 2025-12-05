@@ -95,6 +95,7 @@ class SalesInsightAgent:
             sample_rows_in_table_info=3,
             include_tables=[base_table],
             metadata=metadata,
+            schema=schema,
             engine_args=engine_args or None,
         )
         schema_snapshot = self.sql_database.get_table_info()
