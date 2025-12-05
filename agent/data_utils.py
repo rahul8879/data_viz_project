@@ -30,12 +30,22 @@ def is_sqlite_uri(db_uri: str) -> bool:
     return db_uri.startswith("sqlite")
 
 
-def build_azure_sqlalchemy_uri(server: str, database: str, driver: str = "ODBC Driver 18 for SQL Server") -> str:
+def build_azure_sqlalchemy_uri(
+    server: str,
+    database: str,
+    driver: str = "ODBC Driver 17 for SQL Server",
+    username: str | None = None,
+    password: str | None = None,
+) -> str:
     """Construct an encoded SQLAlchemy URI for Azure SQL over pyodbc."""
+    cred = ""
+    if username and password:
+        cred = f"Uid={username};Pwd={password};"
     odbc_str = (
         f"Driver={{{driver}}};"
         f"Server=tcp:{server},1433;"
         f"Database={database};"
+        f"{cred}"
         "Encrypt=yes;"
         "TrustServerCertificate=no;"
         "Connection Timeout=30;"

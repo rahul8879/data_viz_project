@@ -4,7 +4,6 @@ import argparse
 import os
 from dataclasses import dataclass
 from operator import add
-from pathlib import Path
 from typing import Annotated, List, Optional, TypedDict
 
 from dotenv import load_dotenv
@@ -18,8 +17,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from .data_utils import (
     build_azure_cli_access_token_args,
     build_azure_sqlalchemy_uri,
-    build_sqlite_uri,
-    is_sqlite_uri,
     validate_table_name,
 )
 
@@ -31,23 +28,13 @@ for env_path in (BASE_DIR / ".env", BASE_DIR / "agent" / ".env"):
         load_dotenv(env_path, override=True)
         print(f"Loaded environment variables from {env_path}")
 
-DEFAULT_DB_PATH = BASE_DIR / "data" / "retail_sales.sqlite"
-DEFAULT_TABLE = os.getenv("AZURE_SQL_TABLE", "retail_sales")
-DEFAULT_DB_URI = None
-DEFAULT_USE_AZURE_CLI_AUTH = False
-
+DEFAULT_TABLE = os.getenv("AZURE_SQL_TABLE", "DimDate")
 AZURE_SQL_SERVER = os.getenv("AZURE_SQL_SERVER")
 AZURE_SQL_DATABASE = os.getenv("AZURE_SQL_DATABASE")
-AZURE_SQL_DRIVER = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
+AZURE_SQL_DRIVER = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 17 for SQL Server")
+AZURE_SQL_USERNAME = os.getenv("AZURE_SQL_USERNAME")
+AZURE_SQL_PASSWORD = os.getenv("AZURE_SQL_PASSWORD")
 AZURE_SQL_USE_CLI_AUTH = os.getenv("AZURE_SQL_USE_CLI_AUTH", "true").lower() == "true"
-
-if AZURE_SQL_SERVER and AZURE_SQL_DATABASE:
-    DEFAULT_DB_URI = build_azure_sqlalchemy_uri(
-        server=AZURE_SQL_SERVER,
-        database=AZURE_SQL_DATABASE,
-        driver=AZURE_SQL_DRIVER,
-    )
-    DEFAULT_USE_AZURE_CLI_AUTH = AZURE_SQL_USE_CLI_AUTH
 
 
 class AgentState(TypedDict):
@@ -63,26 +50,35 @@ class AgentAnswer:
 
 @dataclass
 class SalesInsightAgent:
-    """LangGraph powered agent that reasons over a SQL dataset (SQLite by default)."""
+    """LangGraph powered agent that reasons over an Azure SQL table."""
 
-    db_path: Path = DEFAULT_DB_PATH
-    db_uri: Optional[str] = DEFAULT_DB_URI
+    db_uri: Optional[str] = None
     table_name: str = DEFAULT_TABLE
     model_name: str = "gpt-4o-mini"
     temperature: float = 0.0
-    use_azure_cli_auth: bool = DEFAULT_USE_AZURE_CLI_AUTH
+    use_azure_cli_auth: bool = AZURE_SQL_USE_CLI_AUTH
     # endpoint = '127.0.0.1:11434'
 
     def __post_init__(self) -> None:
         validate_table_name(self.table_name)
 
-        # Default to local SQLite unless a full SQLAlchemy URI is supplied (e.g., Azure SQL).
-        self.db_uri = self.db_uri or build_sqlite_uri(self.db_path)
-        if is_sqlite_uri(self.db_uri) and not self.db_path.exists():
-            raise FileNotFoundError(f"Could not find SQLite database at {self.db_path}")
-
-        if self.use_azure_cli_auth and is_sqlite_uri(self.db_uri):
-            raise ValueError("Azure CLI auth is only valid for Azure SQL / pyodbc connections.")
+        if not self.db_uri:
+            if not (AZURE_SQL_SERVER and AZURE_SQL_DATABASE):
+                raise ValueError("Set AZURE_SQL_SERVER and AZURE_SQL_DATABASE in your environment to use Azure SQL.")
+            if self.use_azure_cli_auth:
+                username = password = None
+            else:
+                if not (AZURE_SQL_USERNAME and AZURE_SQL_PASSWORD):
+                    raise ValueError("Provide AZURE_SQL_USERNAME and AZURE_SQL_PASSWORD or enable AZURE_SQL_USE_CLI_AUTH.")
+                username = AZURE_SQL_USERNAME
+                password = AZURE_SQL_PASSWORD
+            self.db_uri = build_azure_sqlalchemy_uri(
+                server=AZURE_SQL_SERVER,
+                database=AZURE_SQL_DATABASE,
+                driver=AZURE_SQL_DRIVER,
+                username=username,
+                password=password,
+            )
 
         engine_args = {}
         if self.use_azure_cli_auth:
@@ -141,20 +137,14 @@ class SalesInsightAgent:
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Query a SQL table using a LangGraph-powered agent.",
-    )
-    parser.add_argument(
-        "--db",
-        type=Path,
-        default=DEFAULT_DB_PATH,
-        help="Path to a SQLite database that backs the agent. Ignored if --db-uri is provided.",
+        description="Query an Azure SQL table using a LangGraph-powered agent.",
     )
     parser.add_argument(
         "--db-uri",
-        default=DEFAULT_DB_URI,
+        default=None,
         help=(
-            "Full SQLAlchemy URI for non-SQLite databases (e.g., Azure SQL). "
-            "Example: mssql+pyodbc://USER:PASSWORD@server.database.windows.net:1433/dbname?driver=ODBC+Driver+18+for+SQL+Server"
+            "Full SQLAlchemy URI for Azure SQL over pyodbc. "
+            "Example: mssql+pyodbc:///?odbc_connect=..."
         ),
     )
     parser.add_argument(
@@ -192,7 +182,6 @@ def main() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
     agent = SalesInsightAgent(
-        db_path=args.db,
         db_uri=args.db_uri,
         table_name=args.table,
         model_name=args.model,

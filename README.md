@@ -1,79 +1,50 @@
-# Agentic Sales Insight Assistant
+# Agentic Sales Insight Assistant (Azure SQL)
 
-This repository now includes a LangGraph-powered agent that can reason over a SQLite-backed synthetic retail dataset stored in `data/retail_sales.sqlite` (table: `retail_sales`). The assistant answers natural-language questions about the dataset and automatically generates supporting charts that are saved under `artifacts/`.
+Conversational agent that reads directly from Azure SQL (no SQLite fallback). It authenticates via Azure CLI and uses LangGraph + LangChain to answer questions over your tables.
 
-## 1. Setup
-
+## 1) Setup
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+export OPENAI_API_KEY="sk-..."   # required for the LLM
 ```
 
-Export an OpenAI API key so the LangChain `ChatOpenAI` client can authenticate:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-## 2. Ask a question
-
-```bash
-python -m agent.sales_agent \
-    --db data/retail_sales.sqlite \
-    --table retail_sales \
-    --question "What are the total sales for the last 10 days and how do they trend daily?"
-```
-
-The agent responds with:
-
-- A concise textual insight grounded in the numbers it computed through the `python_df` tool.
-- A trend chart stored under `artifacts/` when your question includes chart-related keywords (plot/chart/visualize/graph/trend).
-
-## 3. Serve over FastAPI
-
-Launch the HTTP API (with Swagger UI at `/docs`) via:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Send a request using Swagger UI or cURL (only the `prompt` field is required; the app always reads `data/retail_sales.sqlite` / `retail_sales`):
-
-```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Show the average sales by product"}'
-```
-
-The API response mirrors the CLI output with a concise textual answer, plus `chart_path` when a chart is generated (served from `/artifacts/...`). The agent still leverages pandas/matplotlib under the hood when needed but no longer requires charts for every question.
-
-## 4. Web UI (React chat)
-
-1) Start the backend: `uvicorn app.main:app --reload`
-2) Install frontend deps and run the dev server:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-   The Vite dev server will print a local URL (default: http://127.0.0.1:5173). The app calls the FastAPI backend at `http://127.0.0.1:8000` by default; override with `VITE_API_BASE` in a `.env` file if needed.
-
-## 5. Bring your own SQLite table
-
-Point the `--db` and `--table` flags to any SQLite database that includes the columns needed to answer your question (e.g., `order_date`, `revenue`, `region`). The agent automatically tries to parse date-like fields and instructs you when data is missing for a request.
-
-## 6. Use Azure SQL with Azure CLI auth
-
-Set the following environment variables (in `.env` or `agent/.env`) to switch the backend to Azure SQL using access tokens fetched via `az login`:
-
+## 2) Configure Azure SQL (required)
+Set these in `.env` or `agent/.env`:
 ```bash
 AZURE_SQL_SERVER="prod-platform-wellfit-sqlserver-reporting.database.windows.net"
 AZURE_SQL_DATABASE="analytics-dev"
-AZURE_SQL_TABLE="DimDate"                  # optional override; defaults to retail_sales
-AZURE_SQL_DRIVER="ODBC Driver 18 for SQL Server"  # optional
-AZURE_SQL_USE_CLI_AUTH=true                # uses AzureCliCredential to pass an access token to pyodbc
+AZURE_SQL_TABLE="DimDate"                  # optional override
+AZURE_SQL_DRIVER="ODBC Driver 17 for SQL Server"  # optional
+AZURE_SQL_USERNAME="your_user"
+AZURE_SQL_PASSWORD="your_password"
+# Optional: set AZURE_SQL_USE_CLI_AUTH=true to use AzureCliCredential instead of username/password
+# If you enable CLI auth, run: az login
 ```
 
-When these variables are present, the API and CLI automatically build a `mssql+pyodbc` URI and inject the Azure AD access token via `attrs_before`. Without them, the agent falls back to the bundled SQLite database.
-# data_viz_project
+## 3) Ask a question (CLI)
+```bash
+python -m agent.sales_agent --question "Show the last 10 dates and their flags"
+```
+By default it builds a `mssql+pyodbc` URI from the env vars and injects the Azure AD token via `attrs_before`. Override with `--db-uri` if you want to supply your own pyodbc connection string.
+
+## 4) Serve over FastAPI
+```bash
+uvicorn app.main:app --reload
+```
+Call the API:
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Show the top 5 dates"}'
+```
+Health check: `http://127.0.0.1:8000/health`
+
+## 5) React chat UI
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The frontend defaults to `http://127.0.0.1:8000`; override with `VITE_API_BASE` in `frontend/.env` if needed.
