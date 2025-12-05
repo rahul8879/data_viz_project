@@ -8,10 +8,20 @@ const createMessage = (role, text, idOverride) => ({
   text,
 });
 
+const quickPrompts = [
+  "Top regions by revenue last month",
+  "Which products saw the biggest discount?",
+  "How is profit trending week over week?",
+  "Show me sales by channel and segment",
+];
+
 function App() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState([
-    createMessage("agent", "Welcome to BI Agent. Ask anything about sales, profit, discounts, products, or regions."),
+    createMessage(
+      "agent",
+      "Hi, I'm your Sales Insight Agent. Ask me about revenue, profit, discounts, products, or regions—I’ll do the heavy lifting and summarize the answer."
+    ),
   ]);
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -118,7 +128,7 @@ function App() {
     setIsSending(true);
     stopListening(true);
     const userMsg = createMessage("user", text);
-    const thinkingMsg = createMessage("agent", "Thinking...", "thinking");
+    const thinkingMsg = createMessage("agent", "Thinking…", "thinking");
     setMessages((prev) => [...prev, userMsg, thinkingMsg]);
     setPrompt("");
     scrollToBottom();
@@ -151,7 +161,7 @@ function App() {
       setMessages((prev) =>
         prev
           .filter((m) => m.id !== "thinking")
-          .concat(createMessage("agent", `⚠️ ${err.message}`))
+          .concat(createMessage("agent", `⚠️ ${err.message || "Something went wrong."}`))
       );
     } finally {
       setIsSending(false);
@@ -171,79 +181,106 @@ function App() {
   return (
     <div className="page">
       <header className="hero">
-        <div>
-          <p className="badge">BI Agent</p>
-          <h1>Sales Insight Chat</h1>
-          <p className="lede">Conversational insights for your sales and performance data.</p>
+        <div className="hero-text">
+          <h1>Sales Insight Console</h1>
+          <p>Ask questions about your sales data and get concise responses.</p>
         </div>
       </header>
 
       <main className="layout">
-        <section className="chat-shell" id="chat-window">
-          <div id="messages" ref={listRef}>
+        <section className="chat-panel">
+          <div className="chat-header">
+            <div>
+              <p className="eyebrow">Thread</p>
+              <h2>Conversation</h2>
+            </div>
+            <button type="button" className="ghost" disabled={isSending} onClick={() => setMessages(messages.slice(0, 1))}>
+              New chat
+            </button>
+          </div>
+          <div className="messages" ref={listRef}>
             {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`bubble ${m.role} ${m.id === "thinking" ? "thinking" : ""}`}
-                dangerouslySetInnerHTML={{ __html: marked.parse(m.text) }}
-              />
+              <div key={m.id} className={`bubble ${m.role} ${m.id === "thinking" ? "thinking" : ""}`}>
+                <span className="label">{m.role === "user" ? "You" : "Agent"}</span>
+                <div dangerouslySetInnerHTML={{ __html: marked.parse(m.text) }} />
+              </div>
             ))}
           </div>
         </section>
-        <section className="input-panel">
-          <form onSubmit={handleSubmit}>
-            <label htmlFor="prompt">Ask the agent</label>
-            <div className="input-row">
-              <button
-                type="button"
-                className={`mic-btn ${isRecording ? "active" : ""}`}
-                onClick={toggleListening}
-                disabled={isSending}
-                aria-pressed={isRecording}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="icon"
-                  aria-hidden="true"
-                >
-                  <path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" x2="12" y1="19" y2="23" />
-                  <line x1="8" x2="16" y1="23" y2="23" />
-                </svg>
-                <span>{isRecording ? "Stop" : "Speak"}</span>
-              </button>
-              <textarea
-                id="prompt"
-                rows="1"
-                placeholder="Ask a question about revenue, profit, discounts, regions, or products..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                disabled={isSending}
-              />
-              <button type="submit" disabled={isSending}>
-                {isSending ? "Sending..." : "Send"}
-              </button>
-            </div>
+
+        <section className="composer">
+          <div className="prompt-row">
+            <form onSubmit={handleSubmit} className="prompt-form">
+              <div className="input-wrap">
+                <textarea
+                  id="prompt"
+                  rows="2"
+                  placeholder="Ask about revenue, profit, discounts, regions, or products..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                  disabled={isSending}
+                />
+                <div className="actions">
+                  <button
+                    type="button"
+                    className={`mic-btn ${isRecording ? "active" : ""}`}
+                    onClick={toggleListening}
+                    disabled={isSending}
+                    aria-pressed={isRecording}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="icon"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="23" />
+                      <line x1="8" x2="16" y1="23" y2="23" />
+                    </svg>
+                    <span>{isRecording ? "Stop" : "Speak"}</span>
+                  </button>
+                  <button type="submit" disabled={isSending}>
+                    {isSending ? "Sending..." : "Send"}
+                  </button>
+                </div>
+              </div>
+            </form>
             <p className={`hint ${speechError ? "error" : ""}`}>
               {speechError ||
-                (isRecording ? "Listening... tap the mic to finish dictation." : "Use the mic or type your sales question.")}
+                (isRecording
+                  ? "Listening... tap the mic to finish dictation."
+                  : "Tip: Press Enter to send, Shift+Enter for a new line.")}
             </p>
-          </form>
+          </div>
+
+          <div className="quick-prompts">
+            {quickPrompts.map((qp) => (
+              <button
+                key={qp}
+                className="chip"
+                type="button"
+                onClick={() => setPrompt(qp)}
+                disabled={isSending}
+              >
+                {qp}
+              </button>
+            ))}
+          </div>
         </section>
       </main>
     </div>

@@ -46,7 +46,7 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str = Field(..., description="Combined textual answer from the agent.")
     chart_path: str | None = Field(
-        None, description="Path to a generated chart image (served under /artifacts)."
+        None, description="(Deprecated) Chart path; always null because charting is disabled."
     )
 
 
@@ -76,7 +76,4 @@ def query_agent(request: QueryRequest) -> QueryResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - bubble unexpected errors to clients
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    chart_path = None
-    if result.chart_path:
-        chart_path = f"/artifacts/{result.chart_path.name}"
-    return QueryResponse(answer=result.content, chart_path=chart_path)
+    return QueryResponse(answer=result.content, chart_path=None)
