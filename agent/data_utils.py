@@ -16,8 +16,10 @@ AZURE_SQL_SCOPE = "https://database.windows.net/.default"
 
 def validate_table_name(table_name: str) -> None:
     """Guard against SQL injection inside table names."""
-    if not table_name.replace("_", "").isalnum():
-        raise ValueError("Table names may only contain letters, numbers, and underscores.")
+    # Allow optional schema prefix (e.g., dbo.table or rpt.my_table)
+    allowed = table_name.replace("_", "").replace(".", "")
+    if not allowed.isalnum() or table_name.count(".") > 1:
+        raise ValueError("Table names may only contain letters, numbers, underscores, and a single schema prefix.")
 
 
 def build_sqlite_uri(db_path: Path) -> str:
