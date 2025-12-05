@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 import urllib.parse
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 from azure.identity import AzureCliCredential
 
@@ -20,6 +20,14 @@ def validate_table_name(table_name: str) -> None:
     allowed = table_name.replace("_", "").replace(".", "")
     if not allowed.isalnum() or table_name.count(".") > 1:
         raise ValueError("Table names may only contain letters, numbers, underscores, and a single schema prefix.")
+
+
+def split_schema_table(table_name: str) -> Tuple[Optional[str], str]:
+    """Return (schema, table) tuple. Schema is None when not provided."""
+    if "." in table_name:
+        schema, tbl = table_name.split(".", 1)
+        return schema, tbl
+    return None, table_name
 
 
 def build_sqlite_uri(db_path: Path) -> str:

@@ -18,7 +18,9 @@ from .data_utils import (
     build_azure_cli_access_token_args,
     build_azure_sqlalchemy_uri,
     validate_table_name,
+    split_schema_table,
 )
+from sqlalchemy import MetaData
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -62,6 +64,9 @@ class SalesInsightAgent:
     def __post_init__(self) -> None:
         validate_table_name(self.table_name)
 
+        schema, base_table = split_schema_table(self.table_name)
+        qualified_table = f"{schema}.{base_table}" if schema else base_table
+
         if not self.db_uri:
             if not (AZURE_SQL_SERVER and AZURE_SQL_DATABASE):
                 raise ValueError("Set AZURE_SQL_SERVER and AZURE_SQL_DATABASE in your environment to use Azure SQL.")
@@ -84,16 +89,19 @@ class SalesInsightAgent:
         if self.use_azure_cli_auth:
             engine_args["connect_args"] = build_azure_cli_access_token_args()
 
+        metadata = MetaData(schema=schema) if schema else None
         self.sql_database: SQLDatabase = SQLDatabase.from_uri(
             self.db_uri,
             sample_rows_in_table_info=3,
-            include_tables=[self.table_name],
+            include_tables=[base_table],
+            metadata=metadata,
             engine_args=engine_args or None,
         )
         schema_snapshot = self.sql_database.get_table_info()
         self.system_message = SystemMessage(
             content=self._build_system_prompt(
                 schema=schema_snapshot,
+                qualified_table=qualified_table,
             ),
         )
         self.llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
@@ -110,7 +118,7 @@ class SalesInsightAgent:
         graph.add_edge("tools", "agent")
         self.graph = graph.compile()
 
-    def _build_system_prompt(self, schema: str) -> str:
+    def _build_system_prompt(self, schema: str, qualified_table: str) -> str:
         return (
             "You are a senior data analyst embedded inside a LangGraph agent. "
             "You have one tool: "
@@ -118,7 +126,7 @@ class SalesInsightAgent:
             "Follow these rules:\n"
             "- Start with `query_sql_db` to fetch the minimum data needed. Show the SQL you executed in a fenced code block before summarizing results.\n"
             "- Provide crisp, numeric answers grounded in query results. If the request is impossible with available columns, explain why and suggest the missing data.\n\n"
-            f"Only query the table `{self.table_name}`; do not reference or join any other tables.\n"
+            f"Only query the table `{qualified_table}`; do not reference or join any other tables.\n"
             f"SQL schema snapshot:\n{schema}\n\n"
         )
 
