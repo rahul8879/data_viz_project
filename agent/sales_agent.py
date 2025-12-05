@@ -87,6 +87,7 @@ class SalesInsightAgent:
         self.sql_database: SQLDatabase = SQLDatabase.from_uri(
             self.db_uri,
             sample_rows_in_table_info=3,
+            include_tables=[self.table_name],
             engine_args=engine_args or None,
         )
         schema_snapshot = self.sql_database.get_table_info()
@@ -117,8 +118,7 @@ class SalesInsightAgent:
             "Follow these rules:\n"
             "- Start with `query_sql_db` to fetch the minimum data needed. Show the SQL you executed in a fenced code block before summarizing results.\n"
             "- Provide crisp, numeric answers grounded in query results. If the request is impossible with available columns, explain why and suggest the missing data.\n\n"
-            "Multiple tables may exist—join them when helpful. Primary fact table: "
-            f"{self.table_name}\n"
+            f"Only query the table `{self.table_name}`; do not reference or join any other tables.\n"
             f"SQL schema snapshot:\n{schema}\n\n"
         )
 
